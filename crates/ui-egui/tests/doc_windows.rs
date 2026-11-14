@@ -20,6 +20,8 @@ thread_local! {
     static SENT: RefCell<Vec<(ViewportId, ViewportCommand)>> = const { RefCell::new(Vec::new()) };
     /// Input events for the root window's next frame (a key pressed in it).
     static EVENTS: RefCell<Vec<egui::Event>> = const { RefCell::new(Vec::new()) };
+    /// The builder each child viewport was last shown with (its frame, title, size).
+    static BUILDERS: RefCell<egui::ViewportIdMap<egui::ViewportBuilder>> = RefCell::new(egui::ViewportIdMap::default());
 }
 
 fn record(mut out: egui::FullOutput) {
@@ -40,11 +42,18 @@ struct Desk {
 
 impl Desk {
     fn new(quit_with_last_window: bool) -> Desk {
+        Desk::with_base(egui::ViewportBuilder::default(), quit_with_last_window)
+    }
+
+    /// A desk whose root window was opened with `base`, as the app opens its first window.
+    fn with_base(base: egui::ViewportBuilder, quit_with_last_window: bool) -> Desk {
         INFOS.with(|i| i.borrow_mut().clear());
+        BUILDERS.with(|b| b.borrow_mut().clear());
         let ctx = Context::default();
         ctx.set_embed_viewports(false);
         Context::set_immediate_viewport_renderer(|ctx, viewport| {
             let id = viewport.ids.this;
+            BUILDERS.with(|b| b.borrow_mut().insert(id, viewport.builder.clone()));
             let mut input = RawInput { viewport_id: id, ..RawInput::default() };
             input.viewports = INFOS.with(|i| i.borrow().clone());
             input.viewports.entry(id).or_default().parent = Some(viewport.ids.parent);
@@ -54,7 +63,7 @@ impl Desk {
         let mut session = Session::new();
         session.new_workbook();
         let mut app = SheetApp::new(session, Default::default());
-        let windows = DocWindows::new(&mut app, egui::ViewportBuilder::default(), quit_with_last_window);
+        let windows = DocWindows::new(&mut app, base, quit_with_last_window);
         let mut desk = Desk { ctx, app, windows };
         desk.frames(3);
         desk
@@ -574,4 +583,30 @@ fn quit_with_a_draft_in_one_window_and_unsaved_cells_in_another_asks_in_order_an
     assert_eq!(desk.app.dialog.as_ref().map(|d| d.name()), Some("macroEditor"), "no Save Changes question followed");
     assert_eq!(desk.app.session.documents().len(), 2);
     assert_eq!(desk.windows.shown_windows(), [w1, w2]);
+}
+
+#[test]
+fn a_second_window_takes_the_root_windows_own_frame() {
+    // The desktop app opens its windows without the system's decorations on Windows, Linux and
+    // BSD and draws its own title bar; a second workbook's window must not get the system's
+    // title bar on top of that one.
+    let mut desk = Desk::with_base(egui::ViewportBuilder::default().with_decorations(false).with_transparent(true), true);
+    desk.app.run("file.new", json!({})).unwrap();
+    desk.frames(3);
+    let w2 = desk.window_of(1);
+    let vp = desk.viewport(w2);
+    assert_ne!(vp, ViewportId::ROOT, "the second workbook has a native window of its own");
+    let builder = BUILDERS.with(|b| b.borrow().get(&vp).cloned()).unwrap_or_else(|| panic!("window {w2} was never shown"));
+    assert_eq!(builder.decorations, Some(false), "no system title bar on the second window");
+    assert_eq!(builder.transparent, Some(true), "and it keeps the transparent, rounded frame");
+}
+
+#[test]
+fn a_second_window_keeps_the_desktop_frame_when_the_root_does() {
+    let mut desk = Desk::new(true);
+    desk.app.run("file.new", json!({})).unwrap();
+    desk.frames(3);
+    let vp = desk.viewport(desk.window_of(1));
+    let builder = BUILDERS.with(|b| b.borrow().get(&vp).cloned()).unwrap_or_else(|| panic!("the second window was never shown"));
+    assert_eq!(builder.decorations, Some(true), "the desktop draws the frame, as on the first window");
 }
