@@ -61,10 +61,14 @@ pub struct Chrome {
     /// The ribbon's File tab and the Backstage view it opens (also reached by keyboard and
     /// commands such as `ui.backstage`).
     pub file_tab: bool,
+    /// The window's own frame: minimize, maximize and close buttons in the title bar, rounded
+    /// corners and resizing from the edges (see [`crate::window_frame`]). Off by default; the
+    /// desktop app turns it on where it opens its windows without the system's decorations.
+    pub window_controls: bool,
 }
 
 impl Default for Chrome {
     fn default() -> Self {
-        Chrome { title_bar: true, file_tab: true }
+        Chrome { title_bar: true, file_tab: true, window_controls: false }
     }
 }

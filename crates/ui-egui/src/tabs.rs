@@ -127,7 +127,10 @@ pub fn sheet_tabs(app: &mut SheetApp, ui: &mut Ui) {
     if !view.show_sheet_tabs && !view.show_horizontal_scroll {
         return;
     }
-    egui::Panel::bottom("sheet_tabs").exact_size(32.0).frame(egui::Frame::NONE.fill(t.tab_bar)).show(ui, |ui| {
+    // The window's bottom edge when the status bar is hidden: it rounds the window's corners.
+    let corners =
+        if app.ui.status_bar { egui::CornerRadius::ZERO } else { crate::window_frame::corners(ui.ctx(), crate::window_frame::Edge::Bottom) };
+    egui::Panel::bottom("sheet_tabs").exact_size(32.0).frame(egui::Frame::NONE.fill(t.tab_bar).corner_radius(corners)).show(ui, |ui| {
         let rect = ui.max_rect();
         ui.painter().line_segment([rect.left_top(), rect.right_top()], Stroke::new(1.0, t.ribbon_border));
         ui.horizontal_centered(|ui| {
@@ -385,9 +388,11 @@ pub fn sheet_tabs(app: &mut SheetApp, ui: &mut Ui) {
 /// Draws status mode/messages, zoom controls/view-mode buttons and selection statistics.
 pub fn status_bar(app: &mut SheetApp, ui: &mut Ui) {
     let t = Tokens::get(ui.ctx());
-    egui::Panel::bottom("status_bar").exact_size(26.0).frame(egui::Frame::NONE.fill(t.status_bar).inner_margin(egui::Margin::symmetric(12, 0))).show(
-        ui,
-        |ui| {
+    let corners = crate::window_frame::corners(ui.ctx(), crate::window_frame::Edge::Bottom);
+    egui::Panel::bottom("status_bar")
+        .exact_size(26.0)
+        .frame(egui::Frame::NONE.fill(t.status_bar).corner_radius(corners).inner_margin(egui::Margin::symmetric(12, 0)))
+        .show(ui, |ui| {
             // A right-click anywhere on the status bar opens the statistics menu, the text included, so its labels are not
             // selectable. The zoom and view controls sense clicks and handle their own.
             let background = ui.interact(ui.max_rect(), egui::Id::unique("gridcraft.status_bar"), Sense::click());
@@ -496,8 +501,7 @@ pub fn status_bar(app: &mut SheetApp, ui: &mut Ui) {
                     }
                 });
             });
-        },
-    );
+        });
 }
 
 /// The statistics the status bar shows for a selection of more than one cell, left to right: Average, Count,
