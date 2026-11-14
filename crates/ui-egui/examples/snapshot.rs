@@ -2,7 +2,7 @@
 //!
 //! `cargo run --release -p gridcraft-ui-egui --example snapshot -- [--sample sales] [--in file.xlsx]
 //!  [--size 1440x900] [--scale 2] [--cmd 'id={json}']... [--tab Insert] [--dark] [--language en|es|zh|ja|ko|ru|pt|de|cs|fr|tr]
-//!  [--window-frame] [--pane name] [--object id] [--dialog 'name={json}'] [--refedit key=A1:B2] [--hf-edit header|footer] out.png`
+//!  [--window-frame] [--interface-font font.ttf] [--pane name] [--object id] [--dialog 'name={json}'] [--refedit key=A1:B2] [--hf-edit header|footer] out.png`
 //!
 //! `--refedit key=range` collapses the open dialog to its reference box `key`, then selects
 //! `range` on the grid, as a person picking a range for that box does.
@@ -21,6 +21,7 @@ fn main() {
     let mut tab = None;
     let mut dark = false;
     let mut window_frame = false;
+    let mut interface_font: Option<String> = None;
     let mut pane: Option<String> = None;
     let mut chart: Option<u32> = None;
     let mut dialog: Option<String> = None;
@@ -63,6 +64,11 @@ fn main() {
             // The app's own window frame (caption buttons, rounded corners), as the desktop app
             // draws it on Windows, Linux and BSD.
             "--window-frame" => window_frame = true,
+            // Draw the interface in a font file (File › Options › Interface font).
+            "--interface-font" => {
+                i += 1;
+                interface_font = args.get(i).cloned();
+            }
             "--pane" => {
                 i += 1;
                 pane = args.get(i).cloned();
@@ -120,6 +126,12 @@ fn main() {
                 let mut app = SheetApp::new(session, Default::default());
                 app.ui.dark = dark;
                 app.chrome.window_controls = window_frame;
+                if let Some(path) = &interface_font {
+                    match gridcraft_ui_egui::fonts::InterfaceFont::from_file(path) {
+                        Ok(font) => app.ui.interface_font = Some(font),
+                        Err(e) => eprintln!("--interface-font: {e}"),
+                    }
+                }
                 if let Some(code) = &language
                     && let Some(l) = gridcraft_ui_egui::i18n::Language::parse(code)
                 {

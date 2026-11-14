@@ -71,6 +71,13 @@ impl SheetApp {
         }
     }
 
+    /// Rebuilds the font set with [`crate::UiState::interface_font`] (from the next frame on).
+    pub(crate) fn apply_interface_font(&mut self) {
+        fonts::set_interface_font(self.ui.interface_font.clone());
+        self.fonts_ready = false;
+        self.fonts_set = false;
+    }
+
     /// Applies the pending font set. New fonts apply from the next frame on: paint nothing until
     /// then. Startup always proceeds: without it a queued step would be re-offered forever.
     fn start_font_setup(&mut self, ctx: &egui::Context) {
@@ -80,6 +87,8 @@ impl SheetApp {
             self.chart_cache.get_mut().unwrap_or_else(std::sync::PoisonError::into_inner).clear();
             return;
         }
+        // The saved interface font, so the first font set already uses it.
+        fonts::set_interface_font(self.ui.interface_font.clone());
         if self.prepared_fonts {
             ctx.set_fonts(theme::pinned_font_definitions());
             theme::apply(ctx, self.ui.dark);

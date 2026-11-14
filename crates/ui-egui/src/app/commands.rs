@@ -217,6 +217,27 @@ impl SheetApp {
                 self.ui.autocomplete = p.get("on").and_then(Json::as_bool).unwrap_or(!self.ui.autocomplete);
                 Ok(json!({"on": self.ui.autocomplete}))
             }
+            "options.interfaceFont" => {
+                // `{"family": name}` (an installed font), `{"file": path}` (a downloaded font file)
+                // or `{}` / `{"family": "default"}` for the system's interface font.
+                let font = if let Some(file) = p.get("file").and_then(Json::as_str) {
+                    match crate::fonts::InterfaceFont::from_file(file) {
+                        Ok(font) => Some(font),
+                        Err(e) => return Some(Err(e)),
+                    }
+                } else {
+                    match p.get("family").and_then(Json::as_str).map(str::trim).filter(|n| !n.is_empty() && !n.eq_ignore_ascii_case("default")) {
+                        Some(name) => match crate::fonts::InterfaceFont::installed(name) {
+                            Some(font) => Some(font),
+                            None => return Some(Err(format!("no installed font is named {name:?}"))),
+                        },
+                        None => None,
+                    }
+                };
+                self.ui.interface_font = font;
+                self.apply_interface_font();
+                Ok(json!({"font": self.ui.interface_font.as_ref().map(|f| f.name.clone())}))
+            }
             "options.highlightActiveRow" => {
                 self.ui.highlight_active_row = p.get("on").and_then(Json::as_bool).unwrap_or(!self.ui.highlight_active_row);
                 Ok(json!({"on": self.ui.highlight_active_row}))
