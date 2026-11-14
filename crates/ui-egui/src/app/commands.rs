@@ -150,7 +150,7 @@ impl SheetApp {
     }
 
     /// Shows a command error: a toast for an unavailable command, else a message box.
-    pub(super) fn alert(&mut self, e: String) {
+    pub(crate) fn alert(&mut self, e: String) {
         // Shown in the window the user ends up in, also after a command that switched windows.
         self.follow_active_window();
         if e.contains("is not available right now") {
@@ -216,6 +216,14 @@ impl SheetApp {
             "options.autoComplete" => {
                 self.ui.autocomplete = p.get("on").and_then(Json::as_bool).unwrap_or(!self.ui.autocomplete);
                 Ok(json!({"on": self.ui.autocomplete}))
+            }
+            "fonts.addFile" => {
+                // `{"file": path}`: a downloaded font joins the font lists (installed into the
+                // user's font folder, so it is still there after a restart).
+                let Some(file) = p.get("file").and_then(Json::as_str) else {
+                    return Some(Err("fonts.addFile needs {file: path to a .ttf, .otf or .ttc}".into()));
+                };
+                crate::fonts::add_font_file(file, crate::fonts::user_font_dir().as_deref()).map(|family| json!({"family": family}))
             }
             "options.interfaceFont" => {
                 // `{"family": name}` (an installed font), `{"file": path}` (a downloaded font file)

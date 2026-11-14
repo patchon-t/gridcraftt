@@ -94,7 +94,6 @@ pub fn system_font_dirs() -> Vec<PathBuf> {
 }
 
 /// Weight implied by a style name (`"Bold"` → 700, `"Light"` → 300).
-#[cfg(not(target_arch = "wasm32"))]
 fn style_weight(style: &str) -> f32 {
     let s: String = style.chars().filter(|c| c.is_alphanumeric()).flat_map(char::to_lowercase).collect();
     const TABLE: &[(&str, f32)] = &[
@@ -123,7 +122,6 @@ impl Face {
 }
 
 /// Whether a style name reads as italic or oblique.
-#[cfg(not(target_arch = "wasm32"))]
 fn style_italic(style: &str) -> bool {
     let s: String = style.chars().filter(|c| c.is_alphanumeric()).flat_map(char::to_lowercase).collect();
     s.contains("italic") || s.contains("oblique")
@@ -239,7 +237,11 @@ pub fn scan_done() -> bool {
 /// The faces of one installed family, by any of its names, regular-weight first (the order roles
 /// pick from).
 pub fn faces_of(family: &str) -> Vec<Face> {
-    catalog_now().map(|cat| faces_named(cat, family)).unwrap_or_default()
+    let found = catalog_now().map(|cat| faces_named(cat, family)).unwrap_or_default();
+    if !found.is_empty() {
+        return found;
+    }
+    faces_named(&added_faces(), family)
 }
 
 /// The faces in `cat` that go by `wanted`. When two families claim one name the winner is fixed,
@@ -265,7 +267,14 @@ fn faces_named(cat: &[Face], wanted: &str) -> Vec<Face> {
 /// [`cell_family`](crate::theme::cell_family) looks up, so `맑은 고딕` binds as `맑은 고딕`, not as
 /// the catalog's `Malgun Gothic`.
 pub fn installed_among(names: &[String]) -> Vec<String> {
-    catalog_now().map(|cat| installed_in(cat, names)).unwrap_or_default()
+    let mut out = catalog_now().map(|cat| installed_in(cat, names)).unwrap_or_default();
+    for name in installed_in(&added_faces(), names) {
+        if !out.contains(&name) {
+            out.push(name);
+        }
+    }
+    out.sort_by(|a, b| a.to_lowercase().cmp(&b.to_lowercase()).then_with(|| a.cmp(b)));
+    out
 }
 
 /// [`installed_among`] over a given catalog. Names dedupe exactly, not case-folded: a role key is
@@ -288,9 +297,13 @@ fn installed_in(cat: &[Face], names: &[String]) -> Vec<String> {
 /// background scan finishes it returns just the standard names.
 pub fn families() -> Vec<String> {
     let mut out: Vec<String> = crate::ribbon::FONTS.iter().map(|s| s.to_string()).collect();
-    let Some(cat) = catalog_now() else { return out };
     let mut seen: HashSet<String> = out.iter().map(|s| s.to_lowercase()).collect();
-    let mut installed: Vec<String> = cat.iter().map(|f| f.family.clone()).collect();
+    // Fonts added from a file this session (see [`add_font_file`]) are listed even before the
+    // background scan has finished.
+    let mut installed: Vec<String> = added_faces().into_iter().map(|f| f.family).collect();
+    if let Some(cat) = catalog_now() {
+        installed.extend(cat.iter().map(|f| f.family.clone()));
+    }
     installed.sort_by_key(|a| a.to_lowercase());
     installed.dedup_by(|a, b| a.eq_ignore_ascii_case(b));
     for f in installed {
@@ -369,6 +382,91 @@ pub fn bind_faces(fonts: &mut egui::FontDefinitions, family: &str, faces: &[Face
         bound.push(role);
     }
     bound
+}
+
+/// Fonts added from a file while the app runs (Home ▸ Font ▸ Add font file…). The scan catalog
+/// is read once at startup; these join it until the next start, when the copy in the user's font
+/// folder is scanned like any other installed font.
+static ADDED: std::sync::RwLock<Vec<Face>> = std::sync::RwLock::new(Vec::new());
+
+/// A cap on the faces added in one session, so a script adding files in a loop can't grow it
+/// without bound.
+const MAX_ADDED_FACES: usize = 4096;
+
+fn added_faces() -> Vec<Face> {
+    ADDED.read().unwrap_or_else(std::sync::PoisonError::into_inner).clone()
+}
+
+/// The user's own font folder, where an added font is installed so it stays listed after a
+/// restart (and other apps see it too). `None` on wasm or without a home folder.
+pub fn user_font_dir() -> Option<PathBuf> {
+    if cfg!(target_arch = "wasm32") {
+        return None;
+    }
+    if cfg!(windows) {
+        return std::env::var_os("LOCALAPPDATA").map(|l| PathBuf::from(l).join("Microsoft\\Windows\\Fonts"));
+    }
+    let home = std::env::var_os("HOME").filter(|h| !h.is_empty()).map(PathBuf::from)?;
+    Some(if cfg!(target_os = "macos") { home.join("Library/Fonts") } else { home.join(".local/share/fonts") })
+}
+
+/// Adds a downloaded font file (.ttf, .otf, .ttc) to the fonts cells can use, and returns its
+/// family name. The file is copied into `install_dir` (the user's font folder) so the next start
+/// lists it as installed; when that copy fails the original file is used for this session. An
+/// error when the file can't be read or isn't a font.
+pub fn add_font_file(path: &str, install_dir: Option<&std::path::Path>) -> Result<String, String> {
+    let path = path.trim();
+    if path.is_empty() {
+        return Err("no font file given".into());
+    }
+    let source = std::path::Path::new(path);
+    let data = read_font(source).ok_or_else(|| format!("can't read the font file {path:?}"))?;
+    let faces = font_file_faces(&data);
+    let Some((_, family, _, _)) = faces.first().cloned() else {
+        return Err(format!("{path:?} is not a font file GridCraft can use"));
+    };
+    let installed = install_dir.and_then(|dir| install_copy(source, &data, dir)).unwrap_or_else(|| source.to_path_buf());
+    let mut added = ADDED.write().unwrap_or_else(std::sync::PoisonError::into_inner);
+    for (index, family, names, style) in faces {
+        if added.len() >= MAX_ADDED_FACES {
+            break;
+        }
+        if added.iter().any(|f| f.path == installed && f.index == index) {
+            continue;
+        }
+        added.push(Face { family, names, path: installed.clone(), index, weight: style_weight(&style), italic: style_italic(&style) });
+    }
+    Ok(family)
+}
+
+/// Copies a font into `dir` under its own file name, keeping a file already there with the same
+/// bytes. `None` when the copy can't be made (the caller then uses the original file).
+fn install_copy(source: &std::path::Path, data: &[u8], dir: &std::path::Path) -> Option<PathBuf> {
+    let name = source.file_name()?;
+    let dest = dir.join(name);
+    if std::fs::canonicalize(source).ok() == std::fs::canonicalize(&dest).ok() && dest.exists() {
+        return Some(dest);
+    }
+    if dest.exists() {
+        // A different font with the same file name is left alone.
+        return (read_font(&dest).as_deref() == Some(data)).then_some(dest);
+    }
+    std::fs::create_dir_all(dir).ok()?;
+    std::fs::write(&dest, data).ok()?;
+    Some(dest)
+}
+
+/// `(index, family, names, style)` of every face in font data; empty for damaged data or on wasm.
+fn font_file_faces(data: &[u8]) -> Vec<(u32, String, Vec<String>, String)> {
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        file_faces(data)
+    }
+    #[cfg(target_arch = "wasm32")]
+    {
+        let _ = data;
+        Vec::new()
+    }
 }
 
 /// The font the interface (ribbon, menus, dialogs, title bar) is drawn in, when the user chose one
@@ -643,6 +741,64 @@ mod tests {
             assert!(InterfaceFont::from_file(&path).is_err(), "text renamed .ttf is not a font");
         }
         assert!(load_face(&FontFile { path: "/no/such/dir/font.ttf".into(), index: 0 }).is_none());
+    }
+
+    /// egui's bundled Ubuntu Light face: a real, complete font every build has.
+    #[cfg(not(target_arch = "wasm32"))]
+    fn bundled_font_bytes() -> Vec<u8> {
+        let defs = egui::FontDefinitions::default();
+        let data = defs.font_data.get("Ubuntu-Light").expect("egui bundles Ubuntu-Light");
+        (*data.font).as_ref().to_vec()
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn an_added_font_file_is_installed_listed_and_bound_for_cells() {
+        let source = temp_file("downloads-UbuntuAdded.ttf", &bundled_font_bytes());
+        let dir = std::env::temp_dir().join(format!("gridcraft-user-fonts-{}", std::process::id()));
+        let family = add_font_file(&source, Some(&dir)).expect("a font file");
+        assert!(!family.is_empty(), "named by the font itself");
+        let copy = dir.join("downloads-UbuntuAdded.ttf");
+        assert!(copy.exists(), "installed into the user's font folder");
+        assert!(families().contains(&family), "the font lists offer it");
+        let faces = faces_of(&family);
+        assert!(!faces.is_empty());
+        if catalog_now().is_none() {
+            // (A machine with the same family installed would find that copy first.)
+            assert!(faces.iter().all(|f| f.path == copy), "its faces point at the installed copy");
+        }
+        assert_eq!(installed_among(&[family.clone(), "Not Installed".to_string()]), std::slice::from_ref(&family));
+        // A cell set in it renders with it: the font set binds its cell roles.
+        let defs = crate::theme::font_definitions_with(crate::i18n::Language::En, std::slice::from_ref(&family));
+        assert!(defs.families.contains_key(&egui::FontFamily::Name(role_key(&family, false, false).into())));
+        assert!(is_bound(&role_key(&family, true, false)));
+        // Adding the same file again adds nothing twice.
+        let before = added_faces().len();
+        add_font_file(&source, Some(&dir)).unwrap();
+        assert_eq!(added_faces().len(), before);
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn adding_a_font_never_overwrites_a_different_file_of_the_same_name() {
+        let dir = std::env::temp_dir().join(format!("gridcraft-user-fonts-clash-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("Clash.ttf"), b"someone else's font").unwrap();
+        let source = temp_file("Clash.ttf", &font_with_names(&[(EN, 1, "Clash Family"), (EN, 2, "Regular")]));
+        assert_eq!(add_font_file(&source, Some(&dir)).as_deref(), Ok("Clash Family"));
+        assert_eq!(std::fs::read(dir.join("Clash.ttf")).unwrap(), b"someone else's font", "the existing file is kept");
+        assert!(faces_of("Clash Family").iter().all(|f| f.path == std::path::Path::new(&source)), "this session uses the original file");
+    }
+
+    #[test]
+    fn adding_a_missing_or_non_font_file_is_refused() {
+        assert!(add_font_file("", None).is_err());
+        assert!(add_font_file("/no/such/dir/font.ttf", None).is_err());
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let path = temp_file("readme.otf", b"plain text");
+            assert!(add_font_file(&path, None).is_err());
+        }
     }
 
     #[test]
