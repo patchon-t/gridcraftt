@@ -61,6 +61,10 @@ impl eframe::App for App {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         self.1.show(&mut self.0, ui);
     }
+    /// Transparent where the app draws its own rounded frame: the desktop shows past the corners.
+    fn clear_color(&self, visuals: &egui::Visuals) -> [f32; 4] {
+        if self.0.chrome.window_controls { [0.0; 4] } else { visuals.panel_fill.to_normalized_gamma_f32() }
+    }
     fn on_exit(&mut self) {
         print::finish_pending_jobs();
         save_prefs(&self.0);
@@ -78,6 +82,13 @@ impl eframe::App for App {
         #[cfg(target_os = "macos")]
         std::process::exit(0);
     }
+}
+
+/// Whether the app draws its own window frame in place of the system's title bar.
+/// `GRIDCRAFT_SYSTEM_FRAME=1` keeps the system's (a window manager that can't move or resize an
+/// undecorated window, or a compositor without transparency).
+fn own_window_frame() -> bool {
+    !cfg!(target_os = "macos") && std::env::var_os("GRIDCRAFT_SYSTEM_FRAME").is_none_or(|v| v.is_empty() || v == "0")
 }
 
 fn config_dir() -> Option<std::path::PathBuf> {
@@ -348,6 +359,12 @@ fn main() -> eframe::Result<()> {
         .with_drag_and_drop(true);
     if cfg!(target_os = "macos") {
         viewport = viewport.with_fullsize_content_view(true).with_titlebar_shown(false).with_title_shown(false);
+    } else if own_window_frame() {
+        // Windows, Linux and BSD: one title bar, the app's own, with its own minimize, maximize
+        // and close buttons, rounded corners (the transparent window shows the desktop beyond
+        // them) and edge resizing (see `gridcraft_ui_egui::window_frame`).
+        viewport = viewport.with_decorations(false).with_transparent(true);
+        app.chrome.window_controls = true;
     }
     if let Some(i) = icon() {
         viewport = viewport.with_icon(i);

@@ -28,6 +28,10 @@ use print::print;
 
 /// Width of the navigation column.
 const NAV_W: f32 = 196.0;
+/// Height of the accent pill beside the selected navigation row.
+const NAV_PILL_H: f32 = 18.0;
+/// How far a newly chosen page rises as it comes in.
+const PAGE_RISE: f32 = 28.0;
 /// Width of the content column (pages are left-aligned like a document, not stretched).
 const CONTENT_W: f32 = 760.0;
 
@@ -167,36 +171,46 @@ pub fn show(app: &mut SheetApp, ui: &mut Ui) {
     let t = Tokens::get(&ctx);
     let lang = app.ui.language;
     let mut out = Outcome::default();
+    let animate = crate::motion::enabled(app, &ctx);
     let (nav_bg, nav_text, nav_sel) =
         if t.dark { (t.accent_soft, t.text, Color32::from_white_alpha(30)) } else { (t.accent, Color32::WHITE, Color32::from_black_alpha(46)) };
     egui::Panel::left("backstage_nav")
         .exact_size(NAV_W)
         .resizable(false)
-        .frame(egui::Frame::NONE.fill(nav_bg).inner_margin(egui::Margin { left: 0, right: 0, top: 10, bottom: 10 }))
+        .frame(
+            egui::Frame::NONE
+                .fill(nav_bg)
+                .corner_radius(crate::window_frame::corners(&ctx, crate::window_frame::Edge::BottomLeft))
+                .inner_margin(egui::Margin { left: 0, right: 0, top: 10, bottom: 10 }),
+        )
         .show(ui, |ui| {
             ui.spacing_mut().item_spacing.y = 0.0;
-            if nav_item(ui, Icon::Back, lang.tr("Back"), false, nav_text, nav_sel).clicked() {
+            // The selection is painted under the rows once their places are known, so it can
+            // slide from the previous page's row to the new one.
+            let selection = ui.painter().add(egui::Shape::Noop);
+            let mut picked: Option<Rect> = None;
+            if nav_item(ui, &mut picked, Icon::Back, lang.tr("Back"), false, nav_text, nav_sel).clicked() {
                 out.close = true;
             }
             ui.add_space(10.0);
             for page in [Page::Home, Page::New, Page::Open] {
-                if nav_item(ui, page.icon(), lang.tr(page.label()), bs.page == page, nav_text, nav_sel).clicked() {
+                if nav_item(ui, &mut picked, page.icon(), lang.tr(page.label()), bs.page == page, nav_text, nav_sel).clicked() {
                     out.page = Some(page);
                 }
             }
             nav_separator(ui, nav_text);
-            if nav_item(ui, Page::Info.icon(), lang.tr("Info"), bs.page == Page::Info, nav_text, nav_sel).clicked() {
+            if nav_item(ui, &mut picked, Page::Info.icon(), lang.tr("Info"), bs.page == Page::Info, nav_text, nav_sel).clicked() {
                 out.page = Some(Page::Info);
             }
-            if nav_item(ui, Icon::Save, lang.tr("Save"), false, nav_text, nav_sel).clicked() {
+            if nav_item(ui, &mut picked, Icon::Save, lang.tr("Save"), false, nav_text, nav_sel).clicked() {
                 save(app, &mut out);
             }
             for page in [Page::SaveAs, Page::Print, Page::Export] {
-                if nav_item(ui, page.icon(), lang.tr(page.label()), bs.page == page, nav_text, nav_sel).clicked() {
+                if nav_item(ui, &mut picked, page.icon(), lang.tr(page.label()), bs.page == page, nav_text, nav_sel).clicked() {
                     out.page = Some(page);
                 }
             }
-            if nav_item(ui, Icon::Close, lang.tr("Close"), false, nav_text, nav_sel).clicked() {
+            if nav_item(ui, &mut picked, Icon::Close, lang.tr("Close"), false, nav_text, nav_sel).clicked() {
                 // A cell still being edited is part of the workbook; Close keeps the unsaved prompt.
                 if app.commit_edit(0, 0, false, false) {
                     app.run_or_alert("file.close", json!({}));
@@ -206,32 +220,53 @@ pub fn show(app: &mut SheetApp, ui: &mut Ui) {
             // Bottom up: Account sits just above Options, as in Excel.
             ui.with_layout(egui::Layout::bottom_up(egui::Align::Min), |ui| {
                 for page in [Page::Options, Page::Account] {
-                    if nav_item(ui, page.icon(), lang.tr(page.label()), bs.page == page, nav_text, nav_sel).clicked() {
+                    if nav_item(ui, &mut picked, page.icon(), lang.tr(page.label()), bs.page == page, nav_text, nav_sel).clicked() {
                         out.page = Some(page);
                     }
                 }
             });
+            if let Some(row) = picked {
+                let id = ui.scope_id().with("nav_selection");
+                let (top, bottom) = crate::motion::indicator(ui.ctx(), id.with("fill"), (row.top(), row.bottom()), animate);
+                let fill = Rect::from_x_y_ranges(row.x_range(), top..=bottom);
+                // The accent pill: shorter than the row, rounded, stretching as it travels.
+                let pill = row.shrink2(vec2(0.0, (row.height() - NAV_PILL_H) / 2.0));
+                let (pt, pb) = crate::motion::indicator(ui.ctx(), id.with("pill"), (pill.top(), pill.bottom()), animate);
+                let pill = Rect::from_min_max(pos2(row.left() + 3.0, pt), pos2(row.left() + 6.0, pb));
+                ui.painter().set(
+                    selection,
+                    egui::Shape::Vec(vec![egui::Shape::rect_filled(fill, 0.0, nav_sel), egui::Shape::rect_filled(pill, 1.5, nav_text)]),
+                );
+            }
         });
-    egui::CentralPanel::default().frame(egui::Frame::NONE.fill(t.ribbon)).show(ui, |ui| {
-        egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
-            egui::Frame::NONE.inner_margin(egui::Margin { left: 44, right: 32, top: 26, bottom: 32 }).show(ui, |ui| {
-                ui.set_max_width(CONTENT_W);
-                ui.label(RichText::new(lang.tr(bs.page.label())).font(theme::ui_font(28.0)).color(t.text));
-                ui.add_space(18.0);
-                match bs.page {
-                    Page::Home => home(app, ui, &mut bs, &mut out),
-                    Page::New => new_page(app, ui, &mut out),
-                    Page::Open => open_page(app, ui, &mut bs, &mut out),
-                    Page::Info => info(app, ui, &mut bs),
-                    Page::SaveAs => save_as(app, ui, &mut bs, &mut out),
-                    Page::Print => print(app, ui, &mut bs, &mut out),
-                    Page::Export => export(app, ui, &mut out),
-                    Page::Options => options(app, ui),
-                    Page::Account => account(app, ui),
-                }
+    egui::CentralPanel::default()
+        .frame(egui::Frame::NONE.fill(t.ribbon).corner_radius(crate::window_frame::corners(&ctx, crate::window_frame::Edge::BottomRight)))
+        .show(ui, |ui| {
+            egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
+                egui::Frame::NONE.inner_margin(egui::Margin { left: 44, right: 32, top: 26, bottom: 32 }).show(ui, |ui| {
+                    ui.set_max_width(CONTENT_W);
+                    // A new page rises into place and fades up.
+                    let (entered, _) = crate::motion::entrance(ui.ctx(), egui::Id::unique("backstage_page"), bs.page as u64, animate);
+                    if entered < 1.0 {
+                        ui.add_space(PAGE_RISE * (1.0 - entered));
+                        ui.multiply_opacity(entered);
+                    }
+                    ui.label(RichText::new(lang.tr(bs.page.label())).font(theme::ui_font(28.0)).color(t.text));
+                    ui.add_space(18.0);
+                    match bs.page {
+                        Page::Home => home(app, ui, &mut bs, &mut out),
+                        Page::New => new_page(app, ui, &mut out),
+                        Page::Open => open_page(app, ui, &mut bs, &mut out),
+                        Page::Info => info(app, ui, &mut bs),
+                        Page::SaveAs => save_as(app, ui, &mut bs, &mut out),
+                        Page::Print => print(app, ui, &mut bs, &mut out),
+                        Page::Export => export(app, ui, &mut out),
+                        Page::Options => options(app, ui),
+                        Page::Account => account(app, ui),
+                    }
+                });
             });
         });
-    });
     bs.text_edit_focused = ctx.text_edit_focused();
     if !typing
         && app.dialog.is_none()
@@ -269,13 +304,13 @@ fn save(app: &mut SheetApp, out: &mut Outcome) {
 // ---------------------------------------------------------------- navigation
 
 /// Allocates and paints one Backstage navigation row: selected or hover fill, icon, label and button semantics. Returns the row's click response.
-fn nav_item(ui: &mut Ui, icon: Icon, label: &str, selected: bool, text: Color32, sel: Color32) -> egui::Response {
+fn nav_item(ui: &mut Ui, picked: &mut Option<Rect>, icon: Icon, label: &str, selected: bool, text: Color32, sel: Color32) -> egui::Response {
     let (rect, resp) = ui.allocate_exact_size(vec2(NAV_W, 38.0), Sense::click());
     resp.widget_info(|| egui::WidgetInfo::selected(egui::Role::Button, true, selected, label));
     let p = ui.painter();
     if selected {
-        p.rect_filled(rect, 0.0, sel);
-        p.rect_filled(Rect::from_min_size(rect.min, vec2(4.0, rect.height())), 0.0, text);
+        // Painted by the column, under the rows (see `show`).
+        *picked = Some(rect);
     } else if resp.hovered() {
         p.rect_filled(rect, 0.0, sel.gamma_multiply(0.55));
     }

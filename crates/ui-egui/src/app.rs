@@ -213,6 +213,7 @@ impl SheetApp {
         #[cfg(not(target_arch = "wasm32"))]
         updates_ui::show(self, &ctx);
         let t = theme::Tokens::get(&ctx);
+        crate::window_frame::begin(&ctx, self.chrome.window_controls && self.chrome.title_bar);
         // A host can turn the File tab off while Backstage is already open: close it.
         if !self.chrome.file_tab {
             self.backstage = None;
@@ -252,6 +253,7 @@ impl SheetApp {
         macro_ui::question_box(self, &ctx);
         widgets::message_box(self, &ctx);
         widgets::toast(self, &ctx);
+        crate::window_frame::end(&ctx);
         // Requests are admitted in `logic`, for the root viewport, so only its pass issues them.
         if ctx.viewport_id() == egui::ViewportId::ROOT {
             control::issue_screenshots(self, &ctx);

@@ -31,7 +31,7 @@ fn the_title_bar_and_file_tab_are_drawn_by_default() {
 #[test]
 fn a_host_can_leave_out_the_title_bar_and_the_file_tab() {
     let full = harness(Chrome::default());
-    let h = harness(Chrome { title_bar: false, file_tab: false });
+    let h = harness(Chrome { title_bar: false, file_tab: false, ..Chrome::default() });
     assert!(h.query_by_label("AutoSave").is_none(), "no title bar");
     assert!(h.query_by_label("File").is_none(), "no File tab");
     // The ribbon tabs are painted text, so measure the move with the first ribbon control.
@@ -43,7 +43,7 @@ fn a_host_can_leave_out_the_title_bar_and_the_file_tab() {
 
 #[test]
 fn without_the_file_tab_the_backstage_view_never_opens() {
-    let mut h = harness(Chrome { title_bar: true, file_tab: false });
+    let mut h = harness(Chrome { title_bar: true, file_tab: false, ..Chrome::default() });
     h.state_mut().open_backstage(Page::Home);
     h.run_steps(3);
     assert!(h.state().backstage.is_none(), "opening Backstage directly is ignored");
@@ -62,4 +62,26 @@ fn turning_the_file_tab_off_closes_an_open_backstage() {
     h.state_mut().chrome.file_tab = false;
     h.run_steps(3);
     assert!(h.state().backstage.is_none(), "and closes when the host turns the File tab off");
+}
+
+#[test]
+fn the_window_frame_draws_caption_buttons_in_the_title_bar() {
+    let off = harness(Chrome::default());
+    assert!(off.query_by_label("Minimize").is_none(), "the system draws the frame by default");
+    assert!(off.query_by_label("Maximize").is_none());
+    let mut h = harness(Chrome { window_controls: true, ..Chrome::default() });
+    let (min, max, close) = (h.get_by_label("Minimize").rect(), h.get_by_label("Maximize").rect(), h.get_by_label("Close").rect());
+    assert!(min.right() <= max.left() && max.right() <= close.left(), "minimize, maximize, close, left to right");
+    // The test harness insets the app by its panel margin.
+    let app_rect = h.ctx.content_rect().shrink(8.0);
+    assert!(
+        (close.right() - app_rect.right()).abs() < 1.0 && (close.top() - app_rect.top()).abs() < 1.0,
+        "close sits in the top-right corner: {close:?}"
+    );
+    let search = h.get_by_label("Search commands").rect();
+    assert!(search.right() <= min.left(), "the title bar's own controls stay left of the caption buttons");
+    h.get_by_label("Maximize").click();
+    h.run_steps(1);
+    let commands: Vec<_> = h.output().viewport_output.values().flat_map(|v| v.commands.clone()).collect();
+    assert!(commands.contains(&egui::ViewportCommand::Maximized(true)), "Maximize asks the window to maximize: {commands:?}");
 }

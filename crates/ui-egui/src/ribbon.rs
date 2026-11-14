@@ -42,6 +42,9 @@ pub use title_bar::{MAC_CONTENT_LEFT, MAC_TITLE_BAR, TITLE_LEFT_PAD, title_bar};
 use title_bar::{TITLE_BAR_H, TITLE_CONTROL_H};
 use view::view;
 
+/// How far a new ribbon tab's groups travel as they come in.
+const RIBBON_SLIDE: f32 = 36.0;
+
 pub const TABS: &[&str] = &["Home", "Insert", "Draw", "Page Layout", "Formulas", "Data", "Review", "View", "Automate"];
 const _: () = assert!(TITLE_CONTROL_H < TITLE_BAR_H, "title-bar controls keep a margin above and below");
 
@@ -55,6 +58,9 @@ pub fn show(app: &mut SheetApp, ui: &mut Ui) {
     if CONTEXTUAL_TABS.contains(&app.ui.ribbon_tab.as_str()) && !contextual_tabs(app).contains(&app.ui.ribbon_tab.as_str()) {
         app.ui.ribbon_tab = "Home".to_string();
     }
+    let animate = crate::motion::enabled(app, ui.ctx());
+    // Where the active tab sits in the row, for the ribbon's contents to come in from its side.
+    let mut active_index = 0u64;
     egui::Panel::top("ribbon")
         .exact_size(h)
         .frame(egui::Frame::NONE.fill(t.window).inner_margin(egui::Margin { left: 10, right: 10, top: 0, bottom: 6 }))
@@ -71,7 +77,9 @@ pub fn show(app: &mut SheetApp, ui: &mut Ui) {
                     let mut tabs: Vec<&str> = TABS.to_vec();
                     let ctx_tabs = contextual_tabs(app);
                     tabs.extend(ctx_tabs.iter());
-                    for tab in tabs {
+                    // The active tab's underline, drawn after the row so it can slide between tabs.
+                    let mut underline: Option<Rect> = None;
+                    for (index, tab) in tabs.into_iter().enumerate() {
                         let active = app.ui.ribbon_tab == tab;
                         let contextual = ctx_tabs.contains(&tab);
                         let font = theme::ui_font(13.5);
@@ -90,8 +98,8 @@ pub fn show(app: &mut SheetApp, ui: &mut Ui) {
                         };
                         ui.painter().text(r.center(), Align2::CENTER_CENTER, label, if active { theme::ui_bold(13.5) } else { font }, color);
                         if active {
-                            let ul = Rect::from_center_size(pos2(r.center().x, r.bottom() - 3.0), vec2(tw.clamp(20.0, 40.0), 3.0));
-                            ui.painter().rect_filled(ul, 1.5, t.accent);
+                            underline = Some(Rect::from_center_size(pos2(r.center().x, r.bottom() - 3.0), vec2(tw.clamp(20.0, 40.0), 3.0)));
+                            active_index = index as u64;
                         }
                         if resp.clicked() {
                             if active && !collapsed {
@@ -110,6 +118,11 @@ pub fn show(app: &mut SheetApp, ui: &mut Ui) {
                             keytip(app, ui, sequence, pos2(r.center().x, r.bottom() - 1.0));
                         }
                     }
+                    if let Some(ul) = underline {
+                        let (left, right) = crate::motion::indicator(ui.ctx(), ui.scope_id().with("tab_underline"), (ul.left(), ul.right()), animate);
+                        let ul = Rect::from_x_y_ranges(left..=right, ul.y_range());
+                        ui.painter().rect_filled(ul, 1.5, t.accent);
+                    }
                 });
             });
             if collapsed {
@@ -125,7 +138,18 @@ pub fn show(app: &mut SheetApp, ui: &mut Ui) {
             ui.painter().rect_filled(card, 10.0, t.ribbon);
             ui.painter().rect_stroke(card, 10.0, Stroke::new(1.0, t.ribbon_border), StrokeKind::Inside);
             let inner = card.shrink2(vec2(10.0, 6.0));
-            ui.scope_builder(egui::UiBuilder::new().max_rect(inner), |ui| {
+            // A new tab's groups slide in from that tab's side and fade up.
+            let (entered, from) = crate::motion::entrance(ui.ctx(), ui.scope_id().with("ribbon_entrance"), active_index, animate);
+            let side = match from {
+                Some(previous) if previous > active_index => -1.0,
+                _ => 1.0,
+            };
+            let shift = vec2(side * RIBBON_SLIDE * (1.0 - entered), 0.0);
+            ui.scope_builder(egui::UiBuilder::new().max_rect(inner.translate(shift)), |ui| {
+                if entered < 1.0 {
+                    ui.set_clip_rect(inner.intersect(ui.clip_rect()));
+                    ui.multiply_opacity(entered);
+                }
                 // One scroll state per tab: a tab opened after scrolling another starts at its
                 // left edge, and a tab keeps its own offset while others are used.
                 let tab = app.ui.ribbon_tab.clone();

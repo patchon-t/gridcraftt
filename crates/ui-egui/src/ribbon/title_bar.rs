@@ -1,5 +1,6 @@
 use super::controls::{act, control_keytip};
 use super::{Color32, Icon, Sense, SheetApp, Stroke, StrokeKind, Tokens, Ui, icon_button, json, pos2, small_button, theme, theme_choices, vec2};
+use crate::window_frame;
 
 /// macOS draws the window into the title bar (`with_fullsize_content_view`) and AppKit paints the
 /// traffic lights itself, centred in its standard 28 pt title-bar band. Moving them would take
@@ -34,7 +35,9 @@ pub(super) const TITLE_CONTROL_H: f32 = if MAC { 22.0 } else { 26.0 };
 pub fn title_bar(app: &mut SheetApp, ui: &mut Ui) {
     let t = Tokens::get(ui.ctx());
     let ch = TITLE_CONTROL_H;
-    egui::Panel::top("title_bar").exact_size(TITLE_BAR_H).frame(egui::Frame::NONE.fill(t.window)).show(ui, |ui| {
+    let corners = window_frame::corners(ui.ctx(), window_frame::Edge::Top);
+    let controls = window_frame::controls(ui.ctx());
+    egui::Panel::top("title_bar").exact_size(TITLE_BAR_H).frame(egui::Frame::NONE.fill(t.window).corner_radius(corners)).show(ui, |ui| {
         let rect = ui.max_rect();
         // Dragging the empty title area moves the window.
         let bg = ui.interact(rect, ui.scope_id().with("drag_title"), Sense::click_and_drag());
@@ -120,6 +123,10 @@ pub fn title_bar(app: &mut SheetApp, ui: &mut Ui) {
             });
             let left_end = ui.min_rect().right();
             let right = ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if controls {
+                    // Minimize, maximize and close, the full height of the bar, in the window's corner.
+                    window_frame::caption_buttons(ui, TITLE_BAR_H);
+                }
                 ui.add_space(8.0);
                 let __k = icon_button(ui, Icon::Search, t.text_dim, "Search commands", vec2(28.0, ch));
                 control_keytip(app, ui, &__k, "commandSearch");

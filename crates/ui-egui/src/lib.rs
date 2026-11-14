@@ -44,6 +44,7 @@ pub mod keymap;
 pub mod keytips;
 pub mod macro_editor;
 pub mod macro_ui;
+pub mod motion;
 pub mod objects;
 pub mod outline;
 pub mod panes;
@@ -59,6 +60,7 @@ pub mod theme;
 #[cfg(not(target_arch = "wasm32"))]
 mod updates_ui;
 pub mod widgets;
+pub mod window_frame;
 mod window_ui;
 pub mod wordart;
 
