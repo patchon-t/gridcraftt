@@ -275,6 +275,11 @@ pub fn handle(app: &mut SheetApp, ctx: &egui::Context, method: &str, p: &Json) -
                 ("options.autoComplete", "Enable AutoComplete for cell values", "{on?: bool} (toggles without it) → {on}"),
                 ("options.highlightActiveRow", "Highlight the active cell's row", "{on?: bool} (toggles without it) → {on}"),
                 (
+                    "fonts.addFile",
+                    "Add Font File",
+                    "{file: path to a .ttf/.otf/.ttc} → {family}; installs it into the user's font folder and adds it to the font lists",
+                ),
+                (
                     "options.interfaceFont",
                     "Interface Font",
                     "{family: installed font name | \"default\"} or {file: path to a .ttf/.otf/.ttc}; {} restores the default → {font: name | null}",

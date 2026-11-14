@@ -578,9 +578,35 @@ fn font_combo(app: &mut SheetApp, ui: &mut Ui, st: &Style) {
     let resp = ui.add_sized([150.0, 24.0], egui::Button::new(egui::RichText::new(&name).font(theme::ui_font(12.5))));
     control_keytip(app, ui, &resp, "home.fontName");
     let forced = invoke(app, "home.fontName");
-    let items: Vec<(&str, String)> = FONTS.iter().map(|f| (*f, f.to_string())).collect();
-    if let ComboResult::Picked(value) = editable_combo(ui, &resp, "font", &name, &items, forced) {
-        act(app, "home.fontName", json!({"name": value}));
+    // The standard names, then every installed font A–Z (once the background scan has found them),
+    // then, on the desktop, a way to add a font file that isn't installed yet.
+    let families = crate::fonts::families();
+    // (value, label) rows.
+    let mut items: Vec<(&str, String)> = families.iter().map(|f| (f.as_str(), f.clone())).collect();
+    if app.services.pick_font.is_some() {
+        items.push((ADD_FONT_FILE, app.ui.language.tr("Add font file…").to_string()));
+    }
+    match editable_combo(ui, &resp, "font", &name, &items, forced) {
+        ComboResult::Picked(value) if value == ADD_FONT_FILE => add_font_file(app),
+        ComboResult::Picked(value) => act(app, "home.fontName", json!({"name": value})),
+        _ => {}
+    }
+}
+
+/// The value of the font list's "Add font file…" row (not a font name: it holds a NUL).
+const ADD_FONT_FILE: &str = "\u{0}add-font-file";
+
+/// Home ▸ Font ▸ Add font file…: pick a downloaded font, add it to the font lists and set the
+/// selection in it.
+fn add_font_file(app: &mut SheetApp) {
+    let Some(path) = app.services.pick_font.as_ref().and_then(|pick| pick()) else { return };
+    match app.run("fonts.addFile", json!({"file": path})) {
+        Ok(added) => {
+            if let Some(family) = added.get("family").and_then(serde_json::Value::as_str) {
+                act(app, "home.fontName", json!({"name": family}));
+            }
+        }
+        Err(e) => app.alert(e),
     }
 }
 
