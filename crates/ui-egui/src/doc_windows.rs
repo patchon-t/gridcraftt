@@ -40,8 +40,10 @@ impl DocWindows {
     /// Takes over `app`'s windows. `base` is the root window's builder, used for new windows.
     pub fn new(app: &mut SheetApp, base: egui::ViewportBuilder, quit_with_last_window: bool) -> DocWindows {
         app.native_windows = true;
-        // The root window keeps the desktop's frame, so every window does.
-        DocWindows { list: WindowList::new(), viewports: Viewports::new(Frame::Desktop), base, quit_with_last_window, root_hidden: false }
+        // Every window takes the root window's frame: the app's own when the root opened
+        // without the system's decorations (Windows, Linux, BSD), else the desktop's.
+        let frame = frame_for(&base);
+        DocWindows { list: WindowList::new(), viewports: Viewports::new(frame), base, quit_with_last_window, root_hidden: false }
     }
 
     /// The platform default for the last window closing: macOS keeps running, others quit.
@@ -247,6 +249,13 @@ impl DocWindows {
 
 /// The windows that get a native window: every window not hidden (View › Hide), or the active one
 /// when all are hidden, so the app still has a window to unhide them from.
+/// The frame new windows get from the root window's builder. `Viewports` applies it to every
+/// window it opens, over the builder's own decorations, so a root without the system's
+/// decorations must say so here or each further window gets a second, system title bar.
+pub fn frame_for(base: &egui::ViewportBuilder) -> Frame {
+    if base.decorations == Some(false) { Frame::App(craft_window::Layout::default()) } else { Frame::Desktop }
+}
+
 fn visible_windows(app: &SheetApp) -> Vec<u64> {
     let shown: Vec<u64> = app.session.windows().iter().filter(|w| !w.hidden).map(|w| w.id).collect();
     if shown.is_empty() { app.session.active_window().into_iter().collect() } else { shown }
