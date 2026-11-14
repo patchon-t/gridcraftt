@@ -489,3 +489,33 @@ fn fedora_package_folders_are_searched_after_the_other_linux_layouts() {
     let noto = mono.iter().position(|p| p == "/usr/share/fonts/google-noto-vf/NotoSansMono[wght].ttf");
     assert!(noto.is_some() && noto.unwrap_or(0) + 1 == mono.len(), "Fedora's default Noto Sans Mono must be the last resort: {mono:?}");
 }
+
+#[test]
+fn the_interface_font_leads_the_interface_chains_and_a_missing_file_changes_nothing() {
+    use egui::{FontDefinitions, FontFamily};
+    let ui_chain = |f: &FontDefinitions, role: &str| f.families.get(&FontFamily::Name(role.into())).cloned().unwrap_or_default();
+    let mut fonts = pinned_font_definitions();
+    let before = (ui_chain(&fonts, UI), ui_chain(&fonts, UI_BOLD));
+    let missing = crate::fonts::InterfaceFont {
+        name: "Gone".into(),
+        regular: crate::fonts::FontFile { path: "/no/such/dir/gone.ttf".into(), index: 0 },
+        bold: None,
+    };
+    super::font_setup::lead_with_interface_font(&mut fonts, &missing);
+    assert_eq!((ui_chain(&fonts, UI), ui_chain(&fonts, UI_BOLD)), before, "an unreadable file leaves the chains alone");
+
+    // Any readable file will do for the chain order; the parse check comes later in the build.
+    let path = std::env::temp_dir().join(format!("gridcraft-interface-chain-{}.ttf", std::process::id()));
+    std::fs::write(&path, b"font bytes").unwrap();
+    let font = crate::fonts::InterfaceFont {
+        name: "Mine".into(),
+        regular: crate::fonts::FontFile { path: path.to_string_lossy().into_owned(), index: 0 },
+        bold: None,
+    };
+    super::font_setup::lead_with_interface_font(&mut fonts, &font);
+    let (ui, bold) = (ui_chain(&fonts, UI), ui_chain(&fonts, UI_BOLD));
+    assert_eq!(ui.first().map(String::as_str), Some("interface-font"));
+    assert_eq!(bold.first().map(String::as_str), Some("interface-font"), "without a bold face, bold text uses the regular one");
+    assert_eq!(&ui[1..], &before.0[..], "the system faces stay behind it as fallbacks");
+    let _ = std::fs::remove_file(&path);
+}

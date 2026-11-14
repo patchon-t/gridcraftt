@@ -90,6 +90,42 @@ fn general_options(app: &mut SheetApp, ui: &mut Ui, lang: Language) {
             .response
             .labelled_by(label.id);
         ui.end_row();
+        interface_font(app, ui, lang);
+        ui.end_row();
+    });
+}
+
+/// Interface font: the system's, an installed family, or a font file the user downloaded.
+fn interface_font(app: &mut SheetApp, ui: &mut Ui, lang: Language) {
+    let label = ui.label(lang.tr("Interface font"));
+    let current = app.ui.interface_font.as_ref().map(|f| f.name.clone());
+    ui.horizontal(|ui| {
+        craft_ui::ComboBox::from_id_salt("backstage_interface_font")
+            .width(220.0)
+            .height(320.0)
+            .selected_text(current.clone().unwrap_or_else(|| lang.tr("Default").to_string()))
+            .show_ui(ui, |ui| {
+                if ui.selectable_label(current.is_none(), lang.tr("Default")).clicked() {
+                    app.run_or_alert("options.interfaceFont", json!({}));
+                }
+                // Installed families only (the standard names the font list leads with may be
+                // missing on this machine); the list fills in once the font scan has finished.
+                for family in crate::fonts::families().into_iter().filter(|f| !crate::fonts::faces_of(f).is_empty()) {
+                    let selected = current.as_deref().is_some_and(|c| c.eq_ignore_ascii_case(&family));
+                    if ui.selectable_label(selected, &family).clicked() {
+                        app.run_or_alert("options.interfaceFont", json!({"family": family}));
+                    }
+                }
+            })
+            .response
+            .labelled_by(label.id);
+        // A downloaded font file (.ttf, .otf, .ttc) need not be installed to be used here.
+        if let Some(pick) = app.services.pick_font.as_ref()
+            && ui.button(lang.tr("Font file…")).on_hover_text(lang.tr("Use a font file you downloaded (.ttf, .otf or .ttc)")).clicked()
+            && let Some(path) = pick()
+        {
+            app.run_or_alert("options.interfaceFont", json!({"file": path}));
+        }
     });
 }
 

@@ -522,6 +522,11 @@ pub(super) fn font_definitions_impl(
     // script faces: whatever a cell can draw, the formula bar can draw too, even where no script
     // fallback face was found (#349: macOS UI font without Hebrew, cells in Arial with it).
     bind_cell_fallback(&mut fonts, &fallback);
+    // The user's interface font (File › Options › General) leads the interface chains; the
+    // system faces after it still catch what it lacks. Not for the pinned test set.
+    if system && let Some(font) = crate::fonts::interface_font() {
+        lead_with_interface_font(&mut fonts, &font);
+    }
     // Default proportional text in widgets uses the UI font.
     if let Some(ui) = fonts.families.get(&FontFamily::Name(UI.into())).cloned() {
         fonts.families.insert(FontFamily::Proportional, ui);
@@ -626,6 +631,31 @@ fn append_craft_faces(fonts: &mut FontDefinitions) {
             if !chain.contains(key) {
                 chain.push(key.clone());
             }
+        }
+    }
+}
+
+/// Font-data keys of the user's interface font.
+const INTERFACE_REGULAR: &str = "interface-font";
+const INTERFACE_BOLD: &str = "interface-font-bold";
+
+/// Puts the user's interface font first in the UI and UI-bold chains. A face whose file can't be
+/// read leaves its chain as it was; one that can't be parsed is dropped later with the rest
+/// (`drop_unparseable_fonts`), so a bad file never takes the interface down.
+pub(super) fn lead_with_interface_font(fonts: &mut FontDefinitions, font: &crate::fonts::InterfaceFont) {
+    let Some(regular) = crate::fonts::load_face(&font.regular) else { return };
+    fonts.font_data.insert(INTERFACE_REGULAR.into(), std::sync::Arc::new(regular));
+    let bold_key = match font.bold.as_ref().and_then(crate::fonts::load_face) {
+        Some(bold) => {
+            fonts.font_data.insert(INTERFACE_BOLD.into(), std::sync::Arc::new(bold));
+            INTERFACE_BOLD
+        }
+        None => INTERFACE_REGULAR,
+    };
+    for (role, key) in [(UI, INTERFACE_REGULAR), (UI_BOLD, bold_key)] {
+        if let Some(chain) = fonts.families.get_mut(&FontFamily::Name(role.into())) {
+            chain.retain(|k| k != key);
+            chain.insert(0, key.to_string());
         }
     }
 }

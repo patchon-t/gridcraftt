@@ -25,6 +25,9 @@ mod print;
 mod quit;
 mod view;
 
+/// How far the File view or the sheet travels as it comes in.
+const VIEW_SLIDE: f32 = 48.0;
+
 impl SheetApp {
     /// Constructs a `SheetApp` with default UI, grid, printing, control and screenshot state and the caller's session and services.
     pub fn new(session: Session, services: Services) -> SheetApp {
@@ -225,29 +228,26 @@ impl SheetApp {
         if self.chrome.title_bar {
             ribbon::title_bar(self, ui);
         }
-        if self.backstage.is_some() {
-            // File tab: the Backstage view replaces everything below the title bar.
-            backstage::show(self, ui);
-        } else {
-            ribbon::show(self, ui);
-            widgets::notice_bar(self, ui);
-            // Python mode edits only in the formula bar: it shows while a Python edit is open,
-            // also when the preference hides it.
-            if self.session.prefs.formula_bar || self.editor.as_ref().is_some_and(|e| e.python) {
-                formula_bar::show(self, ui);
-            }
-            if self.ui.status_bar {
-                tabs::status_bar(self, ui);
-            }
-            tabs::sheet_tabs(self, ui);
-            pivot_pane::show(self, ui);
-            panes::show(self, ui);
-            egui::CentralPanel::default().frame(egui::Frame::NONE.fill(t.grid_bg)).show(ui, |ui| {
-                let g0 = now_ms();
-                grid::show(self, ui);
-                self.perf.grid_ms = now_ms() - g0;
-            });
+        // Opening or leaving the File view slides the new view in and fades it up over the
+        // window's background: the File view from the left, the sheet from the right.
+        let backstage_open = self.backstage.is_some();
+        let (entered, _) =
+            crate::motion::entrance(&ctx, egui::Id::unique("gridcraft.view_switch"), u64::from(backstage_open), crate::motion::enabled(self, &ctx));
+        let area = ui.available_rect_before_wrap();
+        if entered < 1.0 {
+            // The window is transparent where nothing is painted: the fading view sits on its
+            // own background, not on the desktop.
+            ui.painter().rect_filled(area, crate::window_frame::corners(&ctx, crate::window_frame::Edge::Bottom), t.window);
         }
+        let side = if backstage_open { -1.0 } else { 1.0 };
+        let shifted = area.translate(egui::vec2(side * VIEW_SLIDE * (1.0 - entered), 0.0));
+        ui.scope_builder(egui::UiBuilder::new().id_salt("gridcraft.view").max_rect(shifted), |ui| {
+            if entered < 1.0 {
+                ui.set_clip_rect(area.intersect(ui.clip_rect()));
+                ui.multiply_opacity(entered);
+            }
+            self.view_ui(ui, &t);
+        });
         dialogs::show(self, &ctx);
         macro_ui::forget_closed_editor(self);
         macro_ui::question_box(self, &ctx);
@@ -279,6 +279,34 @@ impl SheetApp {
             self.synthetic.pop_front();
             self.synthetic_pending = false;
             self.synthetic_injected_at_pass = None;
+        }
+    }
+
+    /// Everything below the title bar: the File (Backstage) view, or the ribbon, formula bar,
+    /// sheet tabs, panes and grid.
+    fn view_ui(&mut self, ui: &mut egui::Ui, t: &theme::Tokens) {
+        if self.backstage.is_some() {
+            // File tab: the Backstage view replaces everything below the title bar.
+            backstage::show(self, ui);
+        } else {
+            ribbon::show(self, ui);
+            widgets::notice_bar(self, ui);
+            // Python mode edits only in the formula bar: it shows while a Python edit is open,
+            // also when the preference hides it.
+            if self.session.prefs.formula_bar || self.editor.as_ref().is_some_and(|e| e.python) {
+                formula_bar::show(self, ui);
+            }
+            if self.ui.status_bar {
+                tabs::status_bar(self, ui);
+            }
+            tabs::sheet_tabs(self, ui);
+            pivot_pane::show(self, ui);
+            panes::show(self, ui);
+            egui::CentralPanel::default().frame(egui::Frame::NONE.fill(t.grid_bg)).show(ui, |ui| {
+                let g0 = now_ms();
+                grid::show(self, ui);
+                self.perf.grid_ms = now_ms() - g0;
+            });
         }
     }
 

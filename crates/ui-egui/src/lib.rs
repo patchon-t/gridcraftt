@@ -130,6 +130,16 @@ pub struct UiState {
     /// [`INTERFACE_SCALE_MIN`]..=[`INTERFACE_SCALE_MAX`]; a malformed saved value reads as 100.
     #[serde(deserialize_with = "lenient_interface_scale")]
     pub interface_scale: u16,
+    /// The font the interface is drawn in (File ▸ Options ▸ General ▸ Interface font): an
+    /// installed family or a font file the user picked; `None` uses the system's interface font.
+    /// A malformed saved value reads as `None`.
+    #[serde(deserialize_with = "lenient_interface_font")]
+    pub interface_font: Option<fonts::InterfaceFont>,
+}
+
+fn lenient_interface_font<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<fonts::InterfaceFont>, D::Error> {
+    let v = Json::deserialize(d)?;
+    Ok(serde_json::from_value(v).ok())
 }
 
 pub const INTERFACE_SCALE_MIN: u16 = 75;
@@ -165,6 +175,7 @@ impl Default for UiState {
             keytip_invoke_next: None,
             language: i18n::Language::En,
             interface_scale: 100,
+            interface_font: None,
         }
     }
 }

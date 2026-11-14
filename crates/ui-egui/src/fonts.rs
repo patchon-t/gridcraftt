@@ -371,6 +371,88 @@ pub fn bind_faces(fonts: &mut egui::FontDefinitions, family: &str, faces: &[Face
     bound
 }
 
+/// The font the interface (ribbon, menus, dialogs, title bar) is drawn in, when the user chose one
+/// in File › Options › General: an installed family, or a font file they downloaded and picked.
+/// The faces are kept by file and index, so applying it at startup needs no font scan.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InterfaceFont {
+    /// The family name shown in Options (the font's own name).
+    pub name: String,
+    /// The regular face: a font file and the face's index in it (0 unless a collection).
+    pub regular: FontFile,
+    /// The bold face, when the family has one; bold interface text uses the regular face otherwise.
+    #[serde(default)]
+    pub bold: Option<FontFile>,
+}
+
+/// One face of a font file.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct FontFile {
+    pub path: String,
+    #[serde(default)]
+    pub index: u32,
+}
+
+impl InterfaceFont {
+    /// An installed family, by any of its names, with its regular and bold faces. `None` when no
+    /// installed font goes by that name (or the font scan hasn't finished).
+    pub fn installed(family: &str) -> Option<InterfaceFont> {
+        let faces = faces_of(family);
+        let regular = pick_face(&faces, false, false)?;
+        let bold = pick_face(&faces, true, false).filter(|b| b.path != regular.path || b.index != regular.index);
+        let file = |f: &Face| FontFile { path: f.path.to_string_lossy().into_owned(), index: f.index };
+        Some(InterfaceFont { name: regular.family.clone(), regular: file(regular), bold: bold.map(file) })
+    }
+
+    /// A font file the user picked (a downloaded .ttf, .otf or collection): its first face, named
+    /// by the font itself. An error when the file can't be read or isn't a font.
+    pub fn from_file(path: &str) -> Result<InterfaceFont, String> {
+        let path = path.trim();
+        if path.is_empty() {
+            return Err("no font file given".into());
+        }
+        let data = read_font(std::path::Path::new(path)).ok_or_else(|| format!("can't read the font file {path:?}"))?;
+        let faces = file_faces_of(&data);
+        let (index, family) = faces.into_iter().next().ok_or_else(|| format!("{path:?} is not a font file GridCraft can use"))?;
+        Ok(InterfaceFont { name: family, regular: FontFile { path: path.to_string(), index }, bold: None })
+    }
+}
+
+/// `(index, family)` of every face in font data; empty for damaged data or on wasm.
+fn file_faces_of(data: &[u8]) -> Vec<(u32, String)> {
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        file_faces(data).into_iter().map(|(i, family, _, _)| (i, family)).collect()
+    }
+    #[cfg(target_arch = "wasm32")]
+    {
+        let _ = data;
+        Vec::new()
+    }
+}
+
+/// Loads one face of a font file as egui font data; `None` when it can't be read.
+pub(crate) fn load_face(file: &FontFile) -> Option<egui::FontData> {
+    let bytes = read_font(std::path::Path::new(&file.path))?;
+    let mut fd = egui::FontData::from_owned(bytes);
+    fd.index = file.index;
+    Some(fd)
+}
+
+/// The interface font the next font set is built with (see `theme::font_definitions_with`).
+static INTERFACE: std::sync::RwLock<Option<InterfaceFont>> = std::sync::RwLock::new(None);
+
+/// Sets the interface font the next font set uses. The caller rebuilds the font set.
+pub fn set_interface_font(font: Option<InterfaceFont>) {
+    *INTERFACE.write().unwrap_or_else(std::sync::PoisonError::into_inner) = font;
+}
+
+/// The interface font the next font set uses.
+pub fn interface_font() -> Option<InterfaceFont> {
+    INTERFACE.read().unwrap_or_else(std::sync::PoisonError::into_inner).clone()
+}
+
 /// The role families currently bound to font data. `cell_family` consults this, so it never names a
 /// family egui hasn't been given.
 static BOUND: OnceLock<std::sync::RwLock<HashSet<String>>> = OnceLock::new();
@@ -528,6 +610,55 @@ mod tests {
 
     fn face(family: &str, names: &[&str], path: &str, weight: f32) -> Face {
         Face { family: family.into(), names: names.iter().map(|s| s.to_string()).collect(), path: path.into(), index: 0, weight, italic: false }
+    }
+
+    /// Writes `bytes` to a fresh file under the system temp folder and returns its path.
+    #[cfg(not(target_arch = "wasm32"))]
+    fn temp_file(name: &str, bytes: &[u8]) -> String {
+        let dir = std::env::temp_dir().join(format!("gridcraft-interface-font-{}-{name}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        let path = dir.join(name);
+        std::fs::write(&path, bytes).unwrap();
+        path.to_string_lossy().into_owned()
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn a_downloaded_font_file_is_named_by_the_font_itself() {
+        let path = temp_file("MyDownloadedFont.ttf", &font_with_names(&[(EN, 1, "My Downloaded Font"), (EN, 2, "Regular")]));
+        let font = InterfaceFont::from_file(&path).expect("a font file");
+        assert_eq!(font.name, "My Downloaded Font");
+        assert_eq!(font.regular, FontFile { path: path.clone(), index: 0 });
+        assert_eq!(font.bold, None);
+        assert!(load_face(&font.regular).is_some(), "the face loads as font data");
+    }
+
+    #[test]
+    fn a_file_that_is_missing_or_not_a_font_is_refused() {
+        assert!(InterfaceFont::from_file("").is_err());
+        assert!(InterfaceFont::from_file("/no/such/dir/font.ttf").is_err());
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let path = temp_file("notes.ttf", b"this is not a font");
+            assert!(InterfaceFont::from_file(&path).is_err(), "text renamed .ttf is not a font");
+        }
+        assert!(load_face(&FontFile { path: "/no/such/dir/font.ttf".into(), index: 0 }).is_none());
+    }
+
+    #[test]
+    fn an_unknown_family_is_not_an_interface_font() {
+        assert_eq!(InterfaceFont::installed("No Such Font Family 1234"), None);
+    }
+
+    #[test]
+    fn the_saved_interface_font_reads_back_and_a_broken_one_reads_as_none() {
+        let font = InterfaceFont { name: "A".into(), regular: FontFile { path: "/f/a.ttf".into(), index: 2 }, bold: None };
+        let ui = crate::UiState { interface_font: Some(font.clone()), ..Default::default() };
+        let back: crate::UiState = serde_json::from_value(serde_json::to_value(&ui).unwrap()).unwrap();
+        assert_eq!(back.interface_font, Some(font));
+        let broken: crate::UiState = serde_json::from_value(serde_json::json!({"interfaceFont": {"name": 7}, "animations": false})).unwrap();
+        assert_eq!(broken.interface_font, None, "a malformed font reads as the default");
+        assert!(!broken.animations, "and the rest of the preferences survive it");
     }
 
     #[cfg(not(target_arch = "wasm32"))]
