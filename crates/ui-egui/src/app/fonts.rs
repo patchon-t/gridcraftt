@@ -13,7 +13,7 @@ impl SheetApp {
         self.fonts_set = true;
         self.fonts_rebind = false;
         self.fonts_han = Some(theme::HanOrder::of(self.ui.language));
-        self.fonts_bound = self.used_fonts();
+        self.fonts_bound = fonts::installed_among(&self.used_fonts());
         self.fonts_seen = self.fonts_key();
     }
 
@@ -93,6 +93,12 @@ impl SheetApp {
             ctx.set_fonts(theme::pinned_font_definitions());
             theme::apply(ctx, self.ui.dark);
         } else {
+            // The installed fonts are found by a background scan; workbook fonts (a cell set in
+            // an installed font) and the font lists wait for it. Hosts set the context up with
+            // `setup_context_for_language`, which doesn't start it, so it starts here: without
+            // it every installed font fell back to the default and the Font list showed only the
+            // standard names. Idempotent, and a no-op on the web.
+            fonts::start_scan();
             SheetApp::setup_context_for_language(ctx, self.ui.dark, self.ui.language);
         }
         self.fonts_set = true;
@@ -111,7 +117,10 @@ impl SheetApp {
         if seen == self.fonts_seen {
             return;
         }
-        let used = self.used_fonts();
+        // Only the installed ones get bound: a workbook that names no new installed font (a
+        // new blank book, another file in the same fonts) leaves the font set, and every chart
+        // measured with it, as it is.
+        let used = fonts::installed_among(&self.used_fonts());
         self.fonts_seen = seen;
         if used == self.fonts_bound {
             return;
