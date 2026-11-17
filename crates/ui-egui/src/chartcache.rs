@@ -326,6 +326,10 @@ mod tests {
     // --- frames ---
 
     fn harness(s: Session) -> Harness {
+        // The production font setup starts the installed-font scan, and binding the workbook's
+        // fonts when it finishes clears the chart cache (text was measured with the old set).
+        // Finish the scan first, so that happens in the warm-up frames, not mid-count.
+        let _ = crate::fonts::catalog();
         let mut h = egui_kittest::Harness::builder().with_size(vec2(1400.0, 900.0)).build_ui_state(
             |ui, app: &mut SheetApp| {
                 let ctx = ui.ctx().clone();

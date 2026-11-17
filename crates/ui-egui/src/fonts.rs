@@ -217,8 +217,7 @@ fn catalog_now() -> Option<&'static [Face]> {
 /// Start cataloging the installed fonts on a background thread, so the first frame doesn't wait for
 /// it. A no-op on wasm and after the scan has started.
 pub fn start_scan() {
-    static STARTED: OnceLock<()> = OnceLock::new();
-    STARTED.get_or_init(|| {
+    SCAN_STARTED.get_or_init(|| {
         #[cfg(not(target_arch = "wasm32"))]
         if CATALOG.get().is_none() {
             // A failed spawn leaves the scan to the first blocking lookup.
@@ -227,6 +226,13 @@ pub fn start_scan() {
             });
         }
     });
+}
+
+static SCAN_STARTED: OnceLock<()> = OnceLock::new();
+
+/// Whether the font scan has been started (by [`start_scan`]).
+pub fn scan_started() -> bool {
+    SCAN_STARTED.get().is_some()
 }
 
 /// Whether the background scan has finished.
