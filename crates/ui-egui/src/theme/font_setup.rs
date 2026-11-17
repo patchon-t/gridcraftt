@@ -542,6 +542,9 @@ pub(super) fn font_definitions_impl(
     // Chinese comes from the native-only OFL LXGW face when embedded; a system Han face still
     // leads, and the barred Noto CJK collection never enters.
     append_craft_faces(&mut fonts);
+    // The Fluent System Icons subset, a family of its own: the interface icons draw from it.
+    fonts.font_data.insert(crate::icons::FLUENT_FAMILY.into(), Arc::new(FontData::from_static(crate::icons::FLUENT_FONT)));
+    fonts.families.insert(FontFamily::Name(crate::icons::FLUENT_FAMILY.into()), vec![crate::icons::FLUENT_FAMILY.into()]);
     drop_unparseable_fonts(&mut fonts);
     // Only families egui still has data for count as bound (a dropped face can empty a chain).
     bound.retain(|f| fonts.families.get(&FontFamily::Name(f.as_str().into())).is_some_and(|c| !c.is_empty()));

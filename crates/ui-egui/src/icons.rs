@@ -304,8 +304,178 @@ pub fn paint_on_sheet(p: &Painter, rect: Rect, icon: Icon, c: Color32) {
     paint_with(p, rect, icon, c, &Palette::of(&Tokens::light()));
 }
 
+/// The egui font family of the Fluent System Icons subset (registered by
+/// `theme::font_definitions*`).
+pub const FLUENT_FAMILY: &str = "fluent-icons";
+
+/// The Fluent System Icons subset: Microsoft's Regular icon font, cut down to the glyphs GridCraft
+/// uses (MIT; see `assets/icons/fluent/LICENSE` and ATTRIBUTION.md).
+pub const FLUENT_FONT: &[u8] = include_bytes!("../../../assets/icons/fluent/FluentSystemIcons-GridCraft.ttf");
+
+/// The Fluent System Icons glyph that draws `icon`, or `None` for the icons still drawn in code
+/// (the Function Library books, Percent).
+fn fluent_glyph(icon: Icon) -> Option<char> {
+    Some(match icon {
+        Icon::Paste => '\u{F2D5}',         // ic_fluent_clipboard_paste_20_regular
+        Icon::Cut => '\u{F33A}',           // ic_fluent_cut_20_regular
+        Icon::Copy => '\u{F32B}',          // ic_fluent_copy_20_regular
+        Icon::Brush => '\u{F592}',         // ic_fluent_paint_brush_20_regular
+        Icon::Bold => '\u{F7A4}',          // ic_fluent_text_bold_20_regular
+        Icon::Italic => '\u{F7F4}',        // ic_fluent_text_italic_20_regular
+        Icon::Underline => '\u{F80A}',     // ic_fluent_text_underline_20_regular
+        Icon::Strike => '\u{ED5F}',        // ic_fluent_text_strikethrough_20_regular
+        Icon::Borders => '\u{E19C}',       // ic_fluent_border_all_20_regular
+        Icon::BorderAll => '\u{E19C}',     // ic_fluent_border_all_20_regular
+        Icon::BorderNone => '\u{E1A8}',    // ic_fluent_border_none_20_regular
+        Icon::BorderOutside => '\u{E1AA}', // ic_fluent_border_outside_20_regular
+        Icon::BorderThick => '\u{E1AC}',   // ic_fluent_border_outside_thick_20_regular
+        Icon::Fill => '\u{F595}',          // ic_fluent_paint_bucket_20_regular
+        Icon::FontColor => '\u{F7BF}',     // ic_fluent_text_color_20_regular
+        Icon::AlignTop => '\u{E04A}',      // ic_fluent_align_top_20_regular
+        Icon::AlignMiddle => '\u{E02B}',   // ic_fluent_align_center_vertical_20_regular
+        Icon::AlignBottom => '\u{E01F}',   // ic_fluent_align_bottom_20_regular
+        Icon::AlignLeft => '\u{F79F}',     // ic_fluent_text_align_left_20_regular
+        Icon::AlignCenter => '\u{F799}',   // ic_fluent_text_align_center_20_regular
+        Icon::AlignRight => '\u{F7A1}',    // ic_fluent_text_align_right_20_regular
+        Icon::Orientation => '\u{ED06}',   // ic_fluent_text_direction_rotate_270_right_20_regular
+        Icon::IndentDec => '\u{F0298}',    // ic_fluent_text_indent_decrease_20_regular
+        Icon::IndentInc => '\u{F029B}',    // ic_fluent_text_indent_increase_20_regular
+        Icon::Wrap => '\u{ED69}',          // ic_fluent_text_wrap_20_regular
+        Icon::Merge => '\u{F760}',         // ic_fluent_table_cells_merge_20_regular
+        Icon::Currency => '\u{F54F}',      // ic_fluent_money_20_regular
+        Icon::Comma => '\u{F57D}',         // ic_fluent_number_symbol_20_regular
+        Icon::DecInc => '\u{E477}',        // ic_fluent_decimal_arrow_left_20_regular
+        Icon::DecDec => '\u{E479}',        // ic_fluent_decimal_arrow_right_20_regular
+        Icon::CondFormat => '\u{EC2E}',    // ic_fluent_table_lightning_20_regular
+        Icon::FormatTable => '\u{F75D}',   // ic_fluent_table_20_regular
+        Icon::CellStyles => '\u{EC02}',    // ic_fluent_table_cell_edit_20_regular
+        Icon::Insert => '\u{EC2A}',        // ic_fluent_table_insert_row_20_regular
+        Icon::Delete => '\u{EC10}',        // ic_fluent_table_delete_row_20_regular
+        Icon::Format => '\u{EC4E}',        // ic_fluent_table_settings_20_regular
+        Icon::Sum => '\u{F1AF}',           // ic_fluent_autosum_20_regular
+        Icon::FillDown => '\u{F150}',      // ic_fluent_arrow_download_20_regular
+        Icon::Eraser => '\u{E5E4}',        // ic_fluent_eraser_20_regular
+        Icon::SortFilter => '\u{F18A}',    // ic_fluent_arrow_sort_20_regular
+        Icon::Find => '\u{F68F}',          // ic_fluent_search_20_regular
+        Icon::Undo => '\u{F199}',          // ic_fluent_arrow_undo_20_regular
+        Icon::Redo => '\u{F16E}',          // ic_fluent_arrow_redo_20_regular
+        Icon::Save => '\u{F67F}',          // ic_fluent_save_20_regular
+        Icon::Home => '\u{F480}',          // ic_fluent_home_20_regular
+        Icon::More => '\u{E824}',          // ic_fluent_more_horizontal_20_regular
+        Icon::Chevron => '\u{F2A3}',       // ic_fluent_chevron_down_20_regular
+        Icon::ChevronUp => '\u{F2B6}',     // ic_fluent_chevron_up_20_regular
+        Icon::Close => '\u{F369}',         // ic_fluent_dismiss_20_regular
+        Icon::Check => '\u{F294}',         // ic_fluent_checkmark_20_regular
+        Icon::Fx => '\u{E7E2}',            // ic_fluent_math_formula_20_regular
+        Icon::Plus => '\u{F109}',          // ic_fluent_add_20_regular
+        Icon::Left => '\u{F2AA}',          // ic_fluent_chevron_left_20_regular
+        Icon::Right => '\u{F2B0}',         // ic_fluent_chevron_right_20_regular
+        Icon::Normal => '\u{F462}',        // ic_fluent_grid_20_regular
+        Icon::PageLayout => '\u{F39C}',    // ic_fluent_document_page_bottom_center_20_regular
+        Icon::PageBreak => '\u{E527}',     // ic_fluent_document_page_break_20_regular
+        Icon::Minus => '\u{EBD0}',         // ic_fluent_subtract_20_regular
+        Icon::Table => '\u{F75D}',         // ic_fluent_table_20_regular
+        Icon::PivotTable => '\u{EC1E}',    // ic_fluent_table_freeze_column_and_row_20_regular
+        Icon::Chart => '\u{F33F}',         // ic_fluent_data_bar_vertical_20_regular
+        Icon::ChartBar => '\u{F33F}',      // ic_fluent_data_bar_vertical_20_regular
+        Icon::ChartLine => '\u{E458}',     // ic_fluent_data_line_20_regular
+        Icon::ChartPie => '\u{F344}',      // ic_fluent_data_pie_20_regular
+        Icon::ChartScatter => '\u{E459}',  // ic_fluent_data_scatter_20_regular
+        Icon::Picture => '\u{F488}',       // ic_fluent_image_20_regular
+        Icon::Shapes => '\u{F6AD}',        // ic_fluent_shapes_20_regular
+        Icon::Link => '\u{F4E4}',          // ic_fluent_link_20_regular
+        Icon::Comment => '\u{F2FF}',       // ic_fluent_comment_20_regular
+        Icon::Note => '\u{F56B}',          // ic_fluent_note_20_regular
+        Icon::TextBox => '\u{F80F}',       // ic_fluent_textbox_20_regular
+        Icon::WordArt => '\u{F7DB}',       // ic_fluent_text_effects_20_regular
+        Icon::Symbol => '\u{EBE1}',        // ic_fluent_symbols_20_regular
+        Icon::Equation => '\u{E7E6}',      // ic_fluent_math_symbols_20_regular
+        Icon::Sparkline => '\u{E45D}',     // ic_fluent_data_trending_20_regular
+        Icon::Checkbox => '\u{F28D}',      // ic_fluent_checkbox_checked_20_regular
+        Icon::Button => '\u{F0168}',       // ic_fluent_button_20_regular
+        Icon::Slider => '\u{EB25}',        // ic_fluent_slide_size_20_regular
+        Icon::Spin => '\u{F18A}',          // ic_fluent_arrow_sort_20_regular
+        Icon::Function => '\u{E7E2}',      // ic_fluent_math_formula_20_regular
+        Icon::Name => '\u{F77C}',          // ic_fluent_tag_20_regular
+        Icon::Trace => '\u{E637}',         // ic_fluent_flow_20_regular
+        Icon::Calc => '\u{F20A}',          // ic_fluent_calculator_20_regular
+        Icon::Filter => '\u{F406}',        // ic_fluent_filter_20_regular
+        Icon::SortAsc => '\u{F802}',       // ic_fluent_text_sort_ascending_20_regular
+        Icon::SortDesc => '\u{F803}',      // ic_fluent_text_sort_descending_20_regular
+        Icon::Duplicates => '\u{E424}',    // ic_fluent_copy_select_20_regular
+        Icon::TextColumns => '\u{F7C5}',   // ic_fluent_text_column_two_20_regular
+        Icon::Validation => '\u{F298}',    // ic_fluent_checkmark_circle_20_regular
+        Icon::Group => '\u{F465}',         // ic_fluent_group_20_regular
+        Icon::Ungroup => '\u{E6C8}',       // ic_fluent_group_dismiss_20_regular
+        Icon::Subtotal => '\u{E236}',      // ic_fluent_calculator_multiple_20_regular
+        Icon::Lock => '\u{E78F}',          // ic_fluent_lock_closed_20_regular
+        Icon::Spell => '\u{F7FE}',         // ic_fluent_text_proofing_tools_20_regular
+        Icon::Freeze => '\u{EC22}',        // ic_fluent_table_freeze_row_20_regular
+        Icon::Zoom => '\u{F8C4}',          // ic_fluent_zoom_in_20_regular
+        Icon::Gridlines => '\u{F462}',     // ic_fluent_grid_20_regular
+        Icon::Theme => '\u{F2F5}',         // ic_fluent_color_20_regular
+        Icon::Margins => '\u{F395}',       // ic_fluent_document_margins_20_regular
+        Icon::Orient => '\u{E89F}',        // ic_fluent_orientation_20_regular
+        Icon::SheetRtl => '\u{ED04}',      // ic_fluent_text_direction_horizontal_right_20_regular
+        Icon::Paper => '\u{F378}',         // ic_fluent_document_20_regular
+        Icon::PrintArea => '\u{F62A}',     // ic_fluent_print_20_regular
+        Icon::Script => '\u{F2EF}',        // ic_fluent_code_20_regular
+        Icon::Pen => '\u{E8D7}',           // ic_fluent_pen_20_regular
+        Icon::Share => '\u{F6AF}',         // ic_fluent_share_20_regular
+        Icon::Search => '\u{F68F}',        // ic_fluent_search_20_regular
+        Icon::Settings => '\u{F6A9}',      // ic_fluent_settings_20_regular
+        Icon::Appearance => '\u{E452}',    // ic_fluent_dark_theme_20_regular
+        Icon::Sheet => '\u{F75D}',         // ic_fluent_table_20_regular
+        Icon::SheetList => '\u{F4ED}',     // ic_fluent_list_20_regular
+        Icon::Book => '\u{E54B}',          // ic_fluent_document_table_20_regular
+        Icon::Folder => '\u{F418}',        // ic_fluent_folder_20_regular
+        Icon::Header => '\u{E501}',        // ic_fluent_document_header_20_regular
+        Icon::Footer => '\u{E4FD}',        // ic_fluent_document_footer_20_regular
+        Icon::PageNumber => '\u{E88C}',    // ic_fluent_number_symbol_square_20_regular
+        Icon::PageCount => '\u{F3A3}',     // ic_fluent_document_page_number_20_regular
+        Icon::Calendar => '\u{E24E}',      // ic_fluent_calendar_ltr_20_regular
+        Icon::Clock => '\u{F2DD}',         // ic_fluent_clock_20_regular
+        Icon::FileName => '\u{E557}',      // ic_fluent_document_text_20_regular
+        Icon::Back => '\u{E094}',          // ic_fluent_arrow_circle_left_20_regular
+        Icon::NewFile => '\u{E4DB}',       // ic_fluent_document_add_20_regular
+        Icon::OpenFolder => '\u{F42E}',    // ic_fluent_folder_open_20_regular
+        Icon::Info => '\u{F4A3}',          // ic_fluent_info_20_regular
+        Icon::Print => '\u{F62A}',         // ic_fluent_print_20_regular
+        Icon::Macro => '\u{EFBB}',         // ic_fluent_code_block_20_regular
+        Icon::Record => '\u{F661}',        // ic_fluent_record_20_regular
+        Icon::Relative => '\u{F01E6}',     // ic_fluent_arrow_routing_20_regular
+        Icon::Collapse => '\u{E32D}',      // ic_fluent_chevron_double_up_20_regular
+        Icon::Expand => '\u{E329}',        // ic_fluent_chevron_double_down_20_regular
+        Icon::Play => '\u{F605}',          // ic_fluent_play_20_regular
+        Icon::Step => '\u{E0FC}',          // ic_fluent_arrow_step_in_20_regular
+        Icon::Continue => '\u{F569}',      // ic_fluent_next_20_regular
+        Icon::RunTo => '\u{E10F}',         // ic_fluent_arrow_step_over_20_regular
+        Icon::StopSquare => '\u{F72A}',    // ic_fluent_stop_20_regular
+        _ => return None,
+    })
+}
+
+/// Whether the context's fonts include the Fluent icons (a bare `egui::Context` in a unit test
+/// has only egui's defaults: icons are then drawn in code, never with a missing family).
+fn fluent_loaded(ctx: &egui::Context) -> bool {
+    ctx.fonts(|f| f.families().iter().any(|fam| matches!(fam, egui::FontFamily::Name(n) if &**n == FLUENT_FAMILY)))
+}
+
 /// Draws `icon` into `rect` (square-ish), in colour `c`, with palette `pal`.
 fn paint_with(p: &Painter, rect: Rect, icon: Icon, c: Color32, pal: &Palette) {
+    if let Some(glyph) = fluent_glyph(icon)
+        && fluent_loaded(p.ctx())
+    {
+        let side = rect.width().min(rect.height());
+        let font = egui::FontId::new(side, egui::FontFamily::Name(FLUENT_FAMILY.into()));
+        p.text(rect.center(), egui::Align2::CENTER_CENTER, glyph, font, pal.accent.unwrap_or(c));
+        return;
+    }
+    paint_drawn(p, rect, icon, c, pal);
+}
+
+/// Draws `icon` with GridCraft's own code-drawn artwork.
+fn paint_drawn(p: &Painter, rect: Rect, icon: Icon, c: Color32, pal: &Palette) {
     let side = rect.width().min(rect.height());
     let r = Rect::from_center_size(rect.center(), vec2(side, side));
     let g = G { p, r, s: side / 16.0 };
@@ -993,5 +1163,76 @@ fn paint_alignment(g: &G<'_>, icon: Icon, c: Color32, light: Color32, blue: Colo
         if icon == Icon::IndentDec {
             g.poly(&[(5.0, 6.0), (2.0, 8.0), (5.0, 10.0)], blue);
         }
+    }
+}
+
+#[cfg(test)]
+mod fluent_tests {
+    use super::*;
+
+    /// Every icon variant without a payload, plus a Function Library book.
+    fn sample_icons() -> Vec<Icon> {
+        vec![Icon::Paste, Icon::Save, Icon::Close, Icon::Check, Icon::ChartPie, Icon::Settings, Icon::Percent, Icon::FnBook(FnGlyph::Star)]
+    }
+
+    #[test]
+    fn every_fluent_glyph_is_in_the_subset_font() {
+        use skrifa::MetadataProvider as _;
+        let font = skrifa::FontRef::new(FLUENT_FONT).expect("the subset is a font");
+        let charmap = font.charmap();
+        // Walk every icon the table names (the match covers them all; `sample_icons` alone would
+        // miss most): build each variant through the glyph table's own source.
+        let src = include_str!("icons.rs");
+        let mut checked = 0;
+        for line in src.lines().filter(|l| l.trim_start().starts_with("Icon::") && l.contains("=> '\\u{")) {
+            let hex = line.split("\\u{").nth(1).and_then(|r| r.split('}').next()).unwrap();
+            let ch = char::from_u32(u32::from_str_radix(hex, 16).unwrap()).unwrap();
+            assert!(charmap.map(ch).is_some(), "the subset has no glyph for {line}");
+            checked += 1;
+        }
+        assert!(checked > 100, "the glyph table was read: {checked} entries");
+    }
+
+    /// The shapes painting `icon` adds, with `fonts` installed (or egui's defaults).
+    fn painted(icon: Icon, fluent: bool) -> Vec<egui::Shape> {
+        let ctx = egui::Context::default();
+        if fluent {
+            ctx.set_fonts(crate::theme::pinned_font_definitions());
+        }
+        let mut shapes = Vec::new();
+        // Fonts set now apply from the next pass.
+        for _ in 0..2 {
+            let mut out = ctx.run_ui(egui::RawInput::default(), |ui| {
+                let layer = egui::LayerId::new(egui::Order::Foreground, egui::Id::unique("icon-test"));
+                let p = ui.ctx().layer_painter(layer);
+                paint(&p, Rect::from_min_size(pos2(10.0, 10.0), vec2(20.0, 20.0)), icon, Color32::BLACK);
+            });
+            out.textures_delta.clear();
+            shapes = out.shapes.into_iter().map(|c| c.shape).collect();
+        }
+        shapes
+    }
+
+    /// Whether any of `shapes` is text set in the Fluent icon family.
+    fn has_text(shapes: &[egui::Shape]) -> bool {
+        shapes.iter().any(|s| match s {
+            egui::Shape::Text(t) => {
+                t.galley.job.sections.iter().any(|sec| matches!(&sec.format.font_id.family, egui::FontFamily::Name(n) if &**n == FLUENT_FAMILY))
+            }
+            _ => false,
+        })
+    }
+
+    #[test]
+    fn icons_draw_from_fluent_when_its_font_is_loaded_and_in_code_otherwise() {
+        for icon in sample_icons() {
+            let mapped = fluent_glyph(icon).is_some();
+            assert_eq!(has_text(&painted(icon, true)), mapped, "{icon:?} with the Fluent font");
+            if mapped {
+                assert!(!has_text(&painted(icon, false)), "{icon:?} without it is drawn in code, never from a missing family");
+            }
+        }
+        assert_eq!(fluent_glyph(Icon::Percent), None, "Fluent has no plain percent: still drawn in code");
+        assert_eq!(fluent_glyph(Icon::FnBook(FnGlyph::Coins)), None);
     }
 }

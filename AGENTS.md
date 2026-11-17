@@ -66,6 +66,7 @@ Read [`ROADMAP.md`](ROADMAP.md) and [`docs/gaps.md`](docs/gaps.md). `plan/` is a
 - Never copy Office's icons, ribbon artwork, theme XML, table-style definitions, templates, clip art or wording beyond feature names. Excel feature *names* (menu labels, function names) are fine.
 - Screenshots of Microsoft software are never committed (they live only in `plan/excel/screenshots/`).
 - The ArtCraft brand files in `docs/brand/` are ArtCraft trademarks under `docs/brand/LICENSE-brand.txt`, the one exception.
+- **Fork exception (patchon-t/gridcraftt only):** the interface icons come from Microsoft's Fluent UI System Icons (MIT), a font subset in `assets/icons/fluent/`, by the fork owner's decision. Not for upstream; see ATTRIBUTION.md.
 
 ## Never crash
 People trust GridCraft with their numbers; a crash loses their work. **This outranks feature work.**
